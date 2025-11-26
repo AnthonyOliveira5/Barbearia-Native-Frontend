@@ -5,20 +5,20 @@ import {
   ActivityIndicator,
   FlatList,
   RefreshControl,
-  SafeAreaView,
   Text,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { getMeusAgendamentos } from '../../services/api';
 import { PopulatedAgendamento } from '../../types';
 
-// Formata a data ISO para "dd/mm/aaaa às HH:MM"
+// Função auxiliar para formatar a data
 const formatarDataHora = (dataISO: string) => {
   const data = new Date(dataISO);
-  // Ajusta para o fuso local (removendo as 3h que adicionamos)
-  data.setHours(data.getHours() - 3);
-
+  // Ajuste manual de fuso (opcional, dependendo de como seu backend salva)
+  data.setHours(data.getHours() - 3); 
+  
   const dia = data.toLocaleDateString('pt-BR');
   const hora = data.toLocaleTimeString('pt-BR', {
     hour: '2-digit',
@@ -27,26 +27,21 @@ const formatarDataHora = (dataISO: string) => {
   return `${dia} às ${hora}`;
 };
 
+// Componente para renderizar cada agendamento na lista
 const AgendamentoCard: React.FC<{ item: PopulatedAgendamento }> = ({ item }) => {
-  // Pega o nome do primeiro serviço (se houver)
+  // Função segura para pegar o nome do serviço
   const getPrimeiroServicoNome = () => {
     if (item.servicos.length > 0) {
       const servico = item.servicos[0].servico;
-
-      // --- CORREÇÃO AQUI ---
-      // Em vez de checar if (typeof servico === 'object')
-      // Checamos se NÃO é uma string.
+      
+      // Verifica se NÃO é uma string (ou seja, é o objeto populado)
       if (typeof servico !== 'string') {
-        // Se não é string, o TS agora sabe que é o objeto Servico
         return servico.name;
       }
-      // Opcional: se for uma string, você poderia retornar o ID
-      // return servico; 
     }
     return 'Serviço';
   };
 
-  // ... (o resto do seu componente Card) ...
   return (
     <View className="bg-white p-6 m-4 rounded-lg shadow-md">
       <Text className="text-xl font-bold mb-2">
@@ -65,7 +60,6 @@ const AgendamentoCard: React.FC<{ item: PopulatedAgendamento }> = ({ item }) => 
   );
 };
 
-
 export default function AgendamentosScreen() {
   const { user } = useAuth();
   const [agendamentos, setAgendamentos] = useState<PopulatedAgendamento[]>([]);
@@ -76,9 +70,12 @@ export default function AgendamentosScreen() {
     if (!user) return;
     try {
       setLoading(true);
+      setError('');
       const data = await getMeusAgendamentos(user._id);
-      // Ordena pelos mais recentes primeiro
+      
+      // Ordena: mais recentes primeiro
       data.sort((a, b) => new Date(b.dataAgendamento).getTime() - new Date(a.dataAgendamento).getTime());
+      
       setAgendamentos(data);
     } catch (e: any) {
       setError(e.message);
@@ -87,12 +84,14 @@ export default function AgendamentosScreen() {
     }
   };
 
-  // useFocusEffect é um hook do Expo Router que roda
-  // toda vez que o usuário *entra* nesta tela (aba)
+  // useFocusEffect: Roda sempre que a tela ganha foco (usuário entra na aba)
   useFocusEffect(
     useCallback(() => {
       carregarAgendamentos();
-    }, [user]) // Recarrega se o usuário mudar (ex: login/logout)
+      
+      // IMPORTANTE: Dependência apenas no ID (string) para evitar loops
+      // se o objeto user for recriado na memória.
+    }, [user?._id]) 
   );
 
   return (
@@ -102,17 +101,20 @@ export default function AgendamentosScreen() {
       </View>
 
       {loading && agendamentos.length === 0 && (
-        <ActivityIndicator size="large" color="#EAB308" />
+        <View className="flex-1 justify-center items-center">
+          <ActivityIndicator size="large" color="#EAB308" />
+        </View>
       )}
 
-      {error && (
+      {error !== '' && (
         <View className="flex-1 justify-center items-center p-4">
           <Text className="text-red-500 text-lg text-center">{error}</Text>
+          <Text className="text-blue-500 mt-4" onPress={carregarAgendamentos}>Tentar novamente</Text>
         </View>
       )}
 
       {!loading && agendamentos.length === 0 && !error && (
-        <View className="flex-1 justify-center items-center p-4">
+         <View className="flex-1 justify-center items-center p-4">
           <Text className="text-gray-500 text-lg text-center">
             Você ainda não possui agendamentos.
           </Text>
@@ -124,7 +126,6 @@ export default function AgendamentosScreen() {
         renderItem={({ item }) => <AgendamentoCard item={item} />}
         keyExtractor={(item) => item._id}
         refreshControl={
-          // Adiciona "Puxar para atualizar"
           <RefreshControl
             refreshing={loading}
             onRefresh={carregarAgendamentos}
