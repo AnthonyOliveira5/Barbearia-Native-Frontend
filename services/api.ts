@@ -1,12 +1,9 @@
-// services/api.ts
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { Agendamento, PopulatedAgendamento, Servico } from '../types';
 
-// Use o IP da sua máquina local se estiver testando no celular.
-// Se estiver no emulador/web, 'localhost' funciona.
-// A porta 5000 foi baseada nos exemplos do seu documento [cite: 363, 398]
-const BASE_URL = 'http://localhost:5000/api'; 
+// Ajuste o IP para o da sua máquina/rede local
+const BASE_URL = 'http://192.168.18.10:5000/api'; 
 
 const api = axios.create({
   baseURL: BASE_URL,
@@ -15,91 +12,103 @@ const api = axios.create({
   },
 });
 
-// Isso é um "Interceptor". Ele vai anexar automaticamente o token
-// de autenticação em CADA requisição que fizermos,
-// o que é essencial para suas rotas protegidas[cite: 254].
-api.interceptors.request.use(
-  async (config) => {
-    // Pega o token salvo no AsyncStorage 
-    const token = await AsyncStorage.getItem('userToken'); 
-    
+// Interceptor: Adiciona o Token automaticamente em toda requisição
+api.interceptors.request.use(async (config) => {
+  try {
+    const token = await AsyncStorage.getItem('@Barbearia:token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
+  } catch (error) {
+    console.error("Erro ao pegar token:", error);
   }
-);
+  return config;
+});
 
 export default api;
 
+// --- SERVIÇOS ---
 export const getServicos = async (): Promise<Servico[]> => {
   try {
     const response = await api.get('/servicos');
-    // Filtramos aqui, mas o ideal é o backend já mandar só os ativos
-    return response.data.filter((servico: Servico) => servico.isActive);
+    const lista = Array.isArray(response.data) 
+      ? response.data 
+      : (response.data.data || []); 
+    
+    return lista.filter((s: Servico) => s.isActive);
   } catch (error) {
-    console.error("Erro ao buscar serviços:", error);
-    throw new Error('Não foi possível carregar os serviços.');
+    throw new Error('Erro ao carregar serviços.');
   }
 };
 
-export const createAgendamento = async (
-  clienteId: string,
-  servicoId: string,
-  dataAgendamento: string
-): Promise<Agendamento> => {
+// --- BARBEIROS ---
+export const getBarbeiros = async () => {
   try {
-    // A Figura 13 do seu doc tinha um ID de 'usuario' (barbeiro)
-    // Como não temos seleção de barbeiro, vamos usar um ID fixo
-    // que estava no seu exemplo:
-    const barberIdFixo = "681c145bb825e2d3ae87bdb2";
+    const response = await api.get('/usuarios/barbeiros');
+    return response.data.data || [];
+  } catch (error) {
+    return [];
+  }
+};
 
-    const payload = {
-      cliente: clienteId,
-      usuario: barberIdFixo,
-      dataAgendamento: dataAgendamento, // Deve ser uma data ISO
-      servicos: [
-        {
-          servico: servicoId,
-          quantidade: 1,
-        },
-      ],
-    };
+// --- DISPONIBILIDADE ---
+export interface TimeSlot {
+  time: string;
+  available: boolean;
+}
 
+export const getHorariosDisponiveis = async (date: string, barberId: string): Promise<TimeSlot[]> => {
+  try {
+    const response = await api.get('/agendamentos/disponibilidade', {
+      params: { data: date, barbeiroId: barberId }
+    });
+    return response.data.data || [];
+  } catch (error) {
+    return [];
+  }
+};
+
+// --- CRIAÇÃO DE AGENDAMENTO ---
+interface CreateAgendamentoPayload {
+  cliente: string;
+  usuario: string; 
+  dataAgendamento: string;
+  servicos: { servico: string; quantidade: number; }[];
+}
+
+export const createAgendamento = async (payload: CreateAgendamentoPayload): Promise<Agendamento> => {
+  try {
     const response = await api.post('/agendamentos', payload);
     return response.data;
-  } catch (error) {
-    console.error("Erro ao criar agendamento:", error);
-    throw new Error('Não foi possível confirmar seu agendamento.');
+  } catch (error: any) {
+    const msg = error.response?.data?.message || 'Erro no agendamento.';
+    throw new Error(msg);
   }
 };
 
-/**
- * Busca os agendamentos filtrados por cliente
- * Baseado na rota GET /agendamentos/filtrados
- */
-export const getMeusAgendamentos = async (
-  clienteId: string
-): Promise<PopulatedAgendamento[]> => {
+// --- BUSCA DE AGENDAMENTOS (A CORREÇÃO PRINCIPAL) ---
+export const getMeusAgendamentos = async (clienteId: string): Promise<PopulatedAgendamento[]> => {
   try {
-    // A rota do doc (Fig 6) também filtra por data.
-    // Como queremos "todos", vamos enviar datas bem abertas.
-    const dataInicio = '2000-01-01';
-    const dataFim = '2100-01-01';
-
-    const response = await api.get('/agendamentos/filtrados', {
-      params: {
-        clienteId,
-        dataInicio,
-        dataFim,
-      },
+    // Agora passamos o ID (seja Mongo ou Firebase UID) para o backend via Query Param.
+    // O backend inteligente vai resolver quem é o usuário e devolver a lista certa.
+    const response = await api.get('/agendamentos', {
+      params: { clienteId }
     });
-    return response.data;
+    
+    // Retorna direto o array que veio do backend (já filtrado e ordenado)
+    return response.data.data || [];
   } catch (error) {
     console.error('Erro ao buscar agendamentos:', error);
     throw new Error('Não foi possível carregar seus agendamentos.');
+  }
+};
+
+// --- REGISTRO DE USUÁRIO ---
+export const registerUsuario = async (userData: any) => {
+  try {
+    const response = await api.post('/usuarios', userData);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Erro ao criar conta.');
   }
 };

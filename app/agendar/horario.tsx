@@ -19,7 +19,7 @@ const HORARIOS_DISPONIVEIS = [
 export default function HorarioScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  
+  console.log("Usuário logado:", user);
   // Pega os parâmetros da URL (ex: ...?servicoId=...&data=...)
   const { servicoId, data } = useLocalSearchParams<{ servicoId: string, data: string }>();
   

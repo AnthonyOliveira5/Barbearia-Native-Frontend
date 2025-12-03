@@ -3,51 +3,59 @@ import { SplashScreen, Stack, useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 
-// Importação do CSS Global (corrigida para 1 nível)
+// Importação do CSS Global
 import "../global.css";
 
 // Impede o "splash" de sumir antes de decidirmos a rota
 SplashScreen.preventAutoHideAsync();
 
-/* Este componente decide qual rota mostrar 
-  (Login ou Home) baseado no token
-*/
 function RootLayoutNav() {
   const { token, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (loading) {
-      // Se estiver carregando o token, não faz nada (splash está ativa)
-      return;
-    }
+    if (loading) return;
 
     if (!token) {
-      // Se não tem token, manda pro login
       router.replace('/(auth)/login');
     } else {
-      // Se tem token, manda pra home (dentro das tabs)
       router.replace('/(tabs)');
     }
 
-    // Esconde a splash screen
     SplashScreen.hideAsync();
-
   }, [token, loading, router]);
 
-  /*
-    Este é o Stack principal. O Expo Router vai renderizar
-    o grupo (auth) OU o grupo (tabs) aqui dentro,
-    automaticamente, baseado no redirect que fizemos acima.
-    
-    Note que NÃO definimos <Stack.Screen> aqui.
+  /* ATUALIZAÇÃO AQUI:
+    Agora definimos explicitamente as telas para poder configurar o Modal.
   */
   return (
-    <Stack screenOptions={{ headerShown: false }} />
+    <Stack screenOptions={{ headerShown: false }}>
+      {/* 1. Grupos de Rotas Principais */}
+      <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+
+      {/* 2. Configuração da Tela de Agendamento como MODAL */}
+      <Stack.Screen 
+        name="agendar/[servicoId]" 
+        options={{ 
+          presentation: 'modal', // Faz a tela subir (slide up)
+          headerShown: false,    // Remove o cabeçalho padrão (você já fez um customizado)
+        }} 
+      />
+
+      {/* Opcional: Se a tela de horário for a continuação do modal, 
+        você pode forçar ela a manter o estilo ou ser padrão.
+      */}
+      <Stack.Screen 
+        name="agendar/horario" 
+        options={{ 
+          headerShown: false 
+        }} 
+      />
+    </Stack>
   );
 }
 
-// O layout raiz que envolve tudo no AuthProvider
 export default function RootLayout() {
   return (
     <AuthProvider>

@@ -1,122 +1,107 @@
-// context/AuthContext.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import api from '../services/api'; // Nosso serviço de API da Parte 1
+import api from '../services/api';
 
-// Tipos de dados que seu backend retorna (ajuste conforme seu backend)
+// Importa funções do Firebase
+import { signOut as firebaseSignOut, signInWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '../services/firebase';
+
 interface User {
   _id: string;
   name: string;
   email: string;
   role: 'admin' | 'barber' | 'client';
+  firebase_uid: string;
 }
 
-interface AuthData {
-  token: string;
-  user: User;
-}
-
-interface AuthContextType {
+interface AuthContextData {
+  signed: boolean;
   user: User | null;
-  token: string | null;
   loading: boolean;
   signIn: (email: string, pass: string) => Promise<void>;
-  signUp: (data: any) => Promise<void>; // 'any' para simplificar o cadastro
   signOut: () => void;
 }
 
-// Cria o contexto
-const AuthContext = createContext<AuthContextType>({} as AuthContextType);
+const AuthContext = createContext<AuthContextData>({} as AuthContextData);
 
-// Cria o "Provedor" do contexto
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
-  // Efeito para carregar o token do storage ao iniciar o app
   useEffect(() => {
     async function loadStorageData() {
-      try {
-        const storedToken = await AsyncStorage.getItem('@BarbeariaApp:token');
-        const storedUser = await AsyncStorage.getItem('@BarbeariaApp:user');
+      const storageUser = await AsyncStorage.getItem('@Barbearia:user');
+      const storageToken = await AsyncStorage.getItem('@Barbearia:token');
 
-        if (storedToken && storedUser) {
-          setToken(storedToken);
-          setUser(JSON.parse(storedUser));
-          // Atualiza o header da API para futuras requisições
-          api.defaults.headers.Authorization = `Bearer ${storedToken}`;
-        }
-      } catch (e) {
-        console.error("Falha ao carregar dados do storage", e);
-      } finally {
-        setLoading(false);
+      if (storageUser && storageToken) {
+        // Restaura o token para as chamadas de API
+        api.defaults.headers.Authorization = `Bearer ${storageToken}`;
+        setUser(JSON.parse(storageUser));
       }
+      setLoading(false);
     }
+
     loadStorageData();
   }, []);
 
-  const signIn = async (email: string, pass: string) => {
+  async function signIn(email: string, pass: string) {
     try {
-      // O documento (Fig 7) mostra uma chamada direta ao Firebase.
-      // É MELHOR PRÁTICA ter seu backend MERN fazendo isso.
-      // Vamos assumir que seu backend tem uma rota '/auth/login'
-      const response = await api.post('/auth/login', {
-        email: email,
-        password: pass,
-      });
+      // 1. Autentica no Firebase (verifica senha)
+      const userCredential = await signInWithEmailAndPassword(auth, email, pass);
+      const firebaseUser = userCredential.user;
+      const token = await firebaseUser.getIdToken(); // Token JWT do Firebase
 
-      const { user, token }: AuthData = response.data;
+      // 2. Busca os dados no SEU Backend usando o UID
+      // (Essa é a chamada para a função getUsuarioByFirebaseUid que você mostrou)
+      const response = await api.get(`/usuarios/firebase/${firebaseUser.uid}`);
 
-      // Salva no estado
-      setUser(user);
-      setToken(token);
+      if (!response.data.success) {
+        throw new Error('Usuário não encontrado no sistema.');
+      }
 
-      // Atualiza o header da API
+      const userData = response.data.data;
+
+      // 3. Configura a sessão
       api.defaults.headers.Authorization = `Bearer ${token}`;
-
-      // Salva no AsyncStorage
-      await AsyncStorage.setItem('@BarbeariaApp:token', token);
-      await AsyncStorage.setItem('@BarbeariaApp:user', JSON.stringify(user));
-
-    } catch (error) {
-      console.error("Erro no login:", error);
-      throw new Error("Email ou senha inválidos.");
-    }
-  };
-
-  const signUp = async (data: any) => {
-    try {
-      // Baseado na Fig 11 do seu doc, cadastro de cliente
-      await api.post('/clientes', data);
       
-      // Após cadastrar, faz o login automaticamente
-      await signIn(data.email, data.senha);
+      await AsyncStorage.setItem('@Barbearia:user', JSON.stringify(userData));
+      await AsyncStorage.setItem('@Barbearia:token', token);
 
-    } catch (error) {
-      console.error("Erro no cadastro:", error);
-      throw new Error("Não foi possível criar a conta.");
+      setUser(userData);
+      router.replace('/(tabs)');
+
+    } catch (error: any) {
+      console.error("Erro no login:", error);
+      // Tratamento de erros comuns do Firebase
+      if (error.code === 'auth/invalid-credential') {
+        throw new Error('Email ou senha incorretos.');
+      }
+      throw new Error('Erro ao acessar a conta. Verifique sua conexão.');
     }
-  };
+  }
 
-  const signOut = async () => {
-    await AsyncStorage.clear();
-    setUser(null);
-    setToken(null);
-  };
+  async function signOut() {
+    try {
+      await firebaseSignOut(auth); // Desloga do Firebase
+      await AsyncStorage.clear();  // Limpa dados locais
+      setUser(null);
+      router.replace('/(auth)/login');
+    } catch (error) {
+      console.error("Erro ao sair:", error);
+    }
+  }
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ signed: !!user, user, loading, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );
 };
 
-// Hook customizado para facilitar o uso do contexto
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth deve ser usado dentro de um AuthProvider');
-  }
+  if (!context) throw new Error('useAuth deve ser usado dentro de um AuthProvider');
   return context;
 }
