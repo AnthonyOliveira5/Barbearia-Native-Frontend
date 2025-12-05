@@ -2,7 +2,7 @@
 import { render, screen } from '@testing-library/react-native';
 import React from 'react';
 import * as apiService from '../../services/api';
-import AgendamentosScreen from './agendamentos';
+import AgendamentosScreen from './two';
 
 // 1. Dados Mockados
 const mockData = [

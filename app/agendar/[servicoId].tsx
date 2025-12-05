@@ -23,7 +23,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// ✅ Importa a interface TimeSlot do service atualizado
 import { useAuth } from '../../context/AuthContext';
 import { createAgendamento, getBarbeiros, getHorariosDisponiveis, getServicos, TimeSlot } from '../../services/api';
 import { Servico } from '../../types';
@@ -34,8 +33,9 @@ interface Barbeiro {
   avatar?: string;
 }
 
-// --- MODAL DE STATUS (Popup bonito) ---
+// --- MODAL DE STATUS ---
 const StatusModal = ({ visible, type, message, onClose }: { visible: boolean; type: 'success' | 'error'; message: string; onClose: () => void }) => {
+  // AQUI ESTAVA O ERRO: Havia dois 'return (' seguidos. Agora está correto.
   return (
     <Modal transparent visible={visible} animationType="fade">
       <View className="flex-1 bg-black/60 justify-center items-center px-6">
@@ -73,11 +73,17 @@ const StatusModal = ({ visible, type, message, onClose }: { visible: boolean; ty
 const generateMonthDates = () => {
   const dates = [];
   const today = new Date();
-  const currentMonth = today.getMonth();
   
+  // REGRA DE NEGÓCIO: Se já passou das 19h, começa a mostrar a partir de amanhã
+  if (today.getHours() >= 19) {
+    today.setDate(today.getDate() + 1);
+  }
+
+  const currentMonth = today.getMonth();
   const d = new Date(today);
-  // Loop enquanto for o mesmo mês
-  while (d.getMonth() === currentMonth) {
+  
+  // Mostra dias enquanto for o mesmo mês OU garante pelo menos 5 dias se for fim de mês
+  while (d.getMonth() === currentMonth || dates.length < 5) {
     dates.push({
       fullDate: d.toISOString().split('T')[0],
       day: d.getDate(),
@@ -104,21 +110,17 @@ export default function AgendarScreen() {
   const [allServices, setAllServices] = useState<Servico[]>([]);
   const [selectedServices, setSelectedServices] = useState<Servico[]>([]);
   const [barbers, setBarbers] = useState<Barbeiro[]>([]);
-  
-  // ✅ Agora availableSlots é TimeSlot[] (com status)
   const [availableSlots, setAvailableSlots] = useState<TimeSlot[]>([]);
   
   const [loading, setLoading] = useState(true);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   
-  // Modais
   const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
   const [statusModal, setStatusModal] = useState<{ visible: boolean; type: 'success' | 'error'; message: string }>({
     visible: false, type: 'success', message: ''
   });
 
-  // Formulário
   const [selectedBarber, setSelectedBarber] = useState<string>('any');
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
@@ -148,23 +150,22 @@ export default function AgendarScreen() {
     init();
   }, [servicoId]);
 
-  // Busca Slots quando muda Data ou Barbeiro
-  const fetchSlots = async () => {
-    if (!selectedDate) return;
-    try {
-      setLoadingSlots(true);
-      setSelectedTime(null);
-      
-      const slots = await getHorariosDisponiveis(selectedDate, selectedBarber);
-      setAvailableSlots(slots);
-    } catch (error) {
-      setAvailableSlots([]);
-    } finally {
-      setLoadingSlots(false);
-    }
-  };
-
+  // Busca Slots
   useEffect(() => {
+    const fetchSlots = async () => {
+      if (!selectedDate) return;
+      try {
+        setLoadingSlots(true);
+        setSelectedTime(null);
+        
+        const slots = await getHorariosDisponiveis(selectedDate, selectedBarber);
+        setAvailableSlots(slots);
+      } catch (error) {
+        setAvailableSlots([]);
+      } finally {
+        setLoadingSlots(false);
+      }
+    };
     fetchSlots();
   }, [selectedDate, selectedBarber]);
 
@@ -188,10 +189,16 @@ export default function AgendarScreen() {
   const closeStatusModal = () => {
     setStatusModal(prev => ({ ...prev, visible: false }));
     if (statusModal.type === 'success') {
-      router.replace('/(tabs)/two'); // Vai para a tela de Meus Agendamentos
+      router.replace('/(tabs)/two'); // Redireciona para Meus Agendamentos
     } else {
-      // Se deu erro (conflito), recarrega os horários para atualizar o bloqueio
-      fetchSlots();
+      // Recarrega horários se deu erro (ex: conflito)
+      const fetchSlotsAgain = async () => {
+         setLoadingSlots(true);
+         const slots = await getHorariosDisponiveis(selectedDate, selectedBarber);
+         setAvailableSlots(slots);
+         setLoadingSlots(false);
+      };
+      fetchSlotsAgain();
     }
   };
 
@@ -201,7 +208,7 @@ export default function AgendarScreen() {
       return;
     }
     if (!user) {
-      setStatusModal({ visible: true, type: 'error', message: "Sessão expirada. Faça login novamente." });
+      setStatusModal({ visible: true, type: 'error', message: "Sessão expirada." });
       return;
     }
 
@@ -215,8 +222,7 @@ export default function AgendarScreen() {
           const random = realBarbers[Math.floor(Math.random() * realBarbers.length)];
           finalBarberId = random._id;
         } else {
-            // ID de fallback (Admin/Dono) se não houver barbeiros
-            // Substitua pelo ID real se tiver um admin ou conta mestre
+            // ID Admin/Dono de fallback
             finalBarberId = "681c145bb825e2d3ae87bdb2"; 
         }
       }
@@ -224,12 +230,10 @@ export default function AgendarScreen() {
       const [ano, mes, dia] = selectedDate.split('-').map(Number);
       const [hora, minuto] = selectedTime.split(':').map(Number);
       
-      // ✅ CORREÇÃO DE FUSO NO ENVIO (PARA SALVAR 13:30 UTC E APARECER 10:30 BRT)
-      // Adicionamos 3 horas ao horário escolhido antes de enviar
+      // UTC+3 para compensar fuso Brasil ao salvar
       const dataUTC = new Date(Date.UTC(ano, mes - 1, dia, hora + 3, minuto, 0));
       
       const payload = {
-        // Envia _id, ou uid, ou id (garantia para o backend híbrido)
         cliente: user._id || user.uid || user.id,
         usuario: finalBarberId,
         dataAgendamento: dataUTC.toISOString(),
@@ -248,11 +252,10 @@ export default function AgendarScreen() {
       });
 
     } catch (error: any) {
-      // Se for erro de conflito (409), a mensagem do backend aparecerá aqui
       setStatusModal({ 
         visible: true, 
         type: 'error', 
-        message: error.message || "Não foi possível finalizar o agendamento."
+        message: error.message || "Não foi possível finalizar."
       });
     } finally {
       setSubmitting(false);
@@ -322,7 +325,7 @@ export default function AgendarScreen() {
             }} />
         </View>
 
-        {/* ✅ HORÁRIOS VISUAIS (COM BLOQUEIO) */}
+        {/* HORÁRIOS */}
         <View className="mt-6 px-4">
           <Text className="text-base font-bold text-gray-900 mb-3">Horários Disponíveis</Text>
           {loadingSlots ? (
@@ -333,8 +336,6 @@ export default function AgendarScreen() {
             <View className="flex-row flex-wrap gap-3">
               {availableSlots.map(({ time, available }) => {
                 const isSelected = selectedTime === time;
-                
-                // 🚫 VISUAL BLOQUEADO (Ocupado ou Passado)
                 if (!available) {
                   return (
                     <View key={time} className="w-[30%] py-3 rounded-xl border border-gray-100 bg-gray-50 items-center justify-center opacity-50 flex-row gap-1">
@@ -343,8 +344,6 @@ export default function AgendarScreen() {
                     </View>
                   );
                 }
-
-                // ✅ VISUAL DISPONÍVEL
                 return (
                   <Pressable
                     key={time}
@@ -371,7 +370,7 @@ export default function AgendarScreen() {
         </Pressable>
       </View>
 
-      {/* Modais */}
+      {/* MODAL SERVIÇO */}
       <Modal animationType="slide" transparent={true} visible={isServiceModalOpen} onRequestClose={() => setIsServiceModalOpen(false)}>
         <View className="flex-1 bg-black/50 justify-end">
           <View className="bg-white rounded-t-3xl h-[70%] p-6">
@@ -388,6 +387,8 @@ export default function AgendarScreen() {
           </View>
         </View>
       </Modal>
+      
+      {/* MODAL STATUS */}
       <StatusModal visible={statusModal.visible} type={statusModal.type} message={statusModal.message} onClose={closeStatusModal} />
     </View>
   );
