@@ -32,6 +32,14 @@ export default function AdminLayout() {
           tabBarIcon: ({ color }) => <Scissors size={24} color={color} />,
         }}
       />
+            {/* ✅ NOVA ABA: CLIENTES */}
+      <Tabs.Screen
+        name="clientes"
+        options={{
+          title: 'Clientes',
+          tabBarIcon: ({ color }) => <Users size={24} color={color} />,
+        }}
+      />
       <Tabs.Screen
         name="equipe"
         options={{

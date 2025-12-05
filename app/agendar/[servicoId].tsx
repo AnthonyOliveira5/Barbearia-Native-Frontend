@@ -15,6 +15,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -294,18 +295,34 @@ export default function AgendarScreen() {
           <Pressable onPress={() => setIsServiceModalOpen(true)} className="mt-4 py-3 border border-dashed border-gray-300 rounded-xl flex-row justify-center items-center gap-2 active:bg-gray-50"><Plus size={18} color="#6B7280" /><Text className="text-gray-500 font-medium">Adicionar outro serviço</Text></Pressable>
         </View>
 
-        {/* BARBEIROS */}
+        {/* ✅ BARBEIROS COM FOTO */}
         <View className="mt-6">
           <Text className="px-4 text-base font-bold text-gray-900 mb-3">Escolha o Profissional</Text>
-          <FlatList horizontal data={barbers} keyExtractor={item => item._id} showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }} renderItem={({ item }) => {
+          <FlatList 
+            horizontal 
+            data={barbers} 
+            keyExtractor={item => item._id} 
+            showsHorizontalScrollIndicator={false} 
+            contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }} 
+            renderItem={({ item }) => {
               const isSelected = selectedBarber === item._id;
               return (
-                <Pressable onPress={() => setSelectedBarber(item._id)} className={`items-center w-24 p-3 rounded-2xl border ${isSelected ? 'bg-zinc-900 border-zinc-900' : 'bg-white border-gray-200'}`}>
-                  <View className={`w-14 h-14 rounded-full mb-2 items-center justify-center overflow-hidden ${isSelected ? 'border-2 border-yellow-400' : 'bg-gray-100'}`}><User size={24} color={isSelected ? "#FFF" : "#9CA3AF"} /></View>
+                <Pressable 
+                  onPress={() => setSelectedBarber(item._id)} 
+                  className={`items-center w-24 p-3 rounded-2xl border ${isSelected ? 'bg-zinc-900 border-zinc-900' : 'bg-white border-gray-200'}`}
+                >
+                  <View className={`w-14 h-14 rounded-full mb-2 items-center justify-center overflow-hidden ${isSelected ? 'border-2 border-yellow-400' : 'bg-gray-100'}`}>
+                     {item.avatar ? (
+                        <Image source={{ uri: item.avatar }} className="w-full h-full" resizeMode="cover" />
+                     ) : (
+                        <User size={24} color={isSelected ? "#FFF" : "#9CA3AF"} />
+                     )}
+                  </View>
                   <Text numberOfLines={1} className={`text-center text-xs font-medium ${isSelected ? 'text-white' : 'text-gray-600'}`}>{item.name.split(' ')[0]}</Text>
                 </Pressable>
               );
-            }} />
+            }} 
+          />
         </View>
 
         {/* DATA */}

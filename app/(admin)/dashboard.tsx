@@ -12,8 +12,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BarChart3 } from 'lucide-react-native';
 import { useAuth } from '../../context/AuthContext';
-import api from '../../services/api';
+import api, { getRelatorio } from '../../services/api';
 
 // --- HELPERS DE DATA ---
 const generateMonthDates = () => {
@@ -130,6 +131,9 @@ export default function AdminDashboard() {
   const [agendamentos, setAgendamentos] = useState<AgendamentoAdmin[]>([]);
   const [loading, setLoading] = useState(true);
   const [resumo, setResumo] = useState({ total: 0, valor: 0 });
+  const [reportVisible, setReportVisible] = useState(false);
+  const [reportData, setReportData] = useState<any>(null);
+  const [loadingReport, setLoadingReport] = useState(false);
   
   // ✅ ESTADO DA DATA SELECIONADA
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -138,6 +142,21 @@ export default function AdminDashboard() {
   const [modalConfig, setModalConfig] = useState<{ visible: boolean; type: 'success' | 'error' | 'confirm'; message: string; action?: () => void }>({
     visible: false, type: 'success', message: ''
   });
+
+    const handleOpenReport = async () => {
+    setReportVisible(true);
+    setLoadingReport(true);
+    try {
+      const hoje = new Date();
+      // Busca relatório do mês atual
+      const data = await getRelatorio(hoje.getMonth() + 1, hoje.getFullYear());
+      setReportData(data);
+    } catch (error) {
+      // Erro silencioso ou toast
+    } finally {
+      setLoadingReport(false);
+    }
+  };
 
   const fetchAgenda = async () => {
     if (!user) return;
@@ -221,6 +240,9 @@ export default function AdminDashboard() {
           </View>
           <View className="flex-row gap-3">
              {/* Resumo Mini Compacto */}
+              <Pressable onPress={handleOpenReport} className="w-10 h-10 bg-zinc-800 rounded-full items-center justify-center border border-zinc-700 active:bg-zinc-700">
+                <BarChart3 size={20} color="#FACC15" />
+             </Pressable>
              <View className="items-end">
                 <Text className="text-zinc-400 text-xs uppercase font-bold">Hoje</Text>
                 <Text className="text-green-400 font-bold">R$ {resumo.valor.toFixed(0)}</Text>
@@ -296,6 +318,43 @@ export default function AdminDashboard() {
         onClose={() => setModalConfig(prev => ({ ...prev, visible: false }))}
         onConfirm={modalConfig.action}
       />
+
+      
+      {/* ✅ MODAL DE RELATÓRIO */}
+      <Modal animationType="slide" transparent={true} visible={reportVisible} onRequestClose={() => setReportVisible(false)}>
+        <View className="flex-1 bg-black/60 justify-center items-center px-6">
+          <View className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl">
+            <View className="flex-row justify-between items-center mb-6">
+                <Text className="text-xl font-bold text-gray-900">Relatório Mensal</Text>
+                <Pressable onPress={() => setReportVisible(false)} className="p-1 bg-gray-100 rounded-full"><X size={20} color="#000" /></Pressable>
+            </View>
+
+            {loadingReport ? (
+                <ActivityIndicator color="#EAB308" className="py-10" />
+            ) : (
+                <View className="gap-4">
+                    <View className="bg-green-50 p-4 rounded-xl border border-green-100 items-center">
+                        <Text className="text-green-800 text-sm font-bold uppercase mb-1">Faturamento Total</Text>
+                        <Text className="text-3xl font-bold text-green-600">R$ {reportData?.faturamento?.toFixed(2) || '0.00'}</Text>
+                    </View>
+
+                    <View className="flex-row gap-4">
+                        <View className="flex-1 bg-gray-50 p-4 rounded-xl border border-gray-200 items-center">
+                            <Text className="text-gray-500 text-xs font-bold uppercase">Agendamentos</Text>
+                            <Text className="text-xl font-bold text-gray-900">{reportData?.agendamentos || 0}</Text>
+                        </View>
+                        <View className="flex-1 bg-blue-50 p-4 rounded-xl border border-blue-100 items-center">
+                            <Text className="text-blue-500 text-xs font-bold uppercase">Concluídos</Text>
+                            <Text className="text-xl font-bold text-blue-600">{reportData?.concluidos || 0}</Text>
+                        </View>
+                    </View>
+                    
+                    <Text className="text-center text-gray-400 text-xs mt-2">Referente ao mês atual</Text>
+                </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }

@@ -101,14 +101,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const signOut = async () => {
+const signOut = async () => {
     try {
       await firebaseSignOut(auth);
-      // O listener vai limpar o estado
+      // O listener onIdTokenChanged vai limpar o AsyncStorage e o setUser(null) automaticamente
     } catch (error) {
       console.error("Erro ao sair:", error);
     }
-  };
+};
 
   return (
     <AuthContext.Provider value={{ user, token, loading, signIn, signOut, setUser }}>

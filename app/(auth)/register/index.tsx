@@ -1,16 +1,56 @@
 import { Link, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { Scissors, UserPlus } from 'lucide-react-native';
+import { AlertCircle, CheckCircle2, ChevronLeft, Lock, Mail, Phone, User, UserPlus } from 'lucide-react-native';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// Imports do projeto
-import { Footer } from '../../../components/Footer';
-import { Header } from '../../../components/Header';
+import { Footer } from '../../../components/Footer'; // ✅ Importado
+import { Header } from '../../../components/Header'; // ✅ Importado
 import { registerUsuario } from '../../../services/api';
-import { auth } from "../../../services/firebase"; // ⚠️ Verifique se o caminho está correto
+import { auth } from '../../../services/firebase';
+
+// --- MODAL DE STATUS (Reutilizável) ---
+const StatusModal = ({ visible, type, message, onClose, onConfirm }: { visible: boolean; type: 'success' | 'error'; message: string; onClose: () => void; onConfirm?: () => void }) => {
+  return (
+    <Modal transparent visible={visible} animationType="fade">
+      <View className="flex-1 bg-black/60 justify-center items-center px-6">
+        <View className="bg-white w-full max-w-sm rounded-2xl p-6 items-center shadow-2xl">
+          <View className={`w-16 h-16 rounded-full items-center justify-center mb-4 ${type === 'success' ? 'bg-green-100' : 'bg-red-100'}`}>
+            {type === 'success' ? <CheckCircle2 size={32} color="#16A34A" /> : <AlertCircle size={32} color="#DC2626" />}
+          </View>
+          
+          <Text className="text-xl font-bold text-gray-900 mb-2 text-center">
+            {type === 'success' ? 'Conta Criada!' : 'Algo deu errado'}
+          </Text>
+          <Text className="text-gray-500 text-center mb-6 text-base leading-5">
+            {message}
+          </Text>
+
+          <Pressable 
+            onPress={onClose}
+            className={`w-full py-3 rounded-xl items-center ${type === 'success' ? 'bg-zinc-900' : 'bg-red-500'}`}
+          >
+            <Text className="text-white font-bold text-base">
+              {type === 'success' ? 'Ir para Login' : 'Tentar Novamente'}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+};
 
 const RegisterScreen = () => {
   const router = useRouter();
@@ -22,175 +62,226 @@ const RegisterScreen = () => {
   const [telefone, setTelefone] = useState(''); 
 
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [modalConfig, setModalConfig] = useState<{ visible: boolean; type: 'success' | 'error'; message: string }>({
+    visible: false, type: 'success', message: ''
+  });
 
-  // Função auxiliar para gerar senha aleatória para o Backend
   const generateRandomPassword = () => {
     return Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
   };
 
   const handleRegister = async () => {
-    setError('');
-
-    // 1. Validações Locais
+    // Validações básicas
     if (!name || !email || !password || !confirmPassword || !telefone) {
-      setError('Por favor, preencha todos os campos.');
+      setModalConfig({ visible: true, type: 'error', message: 'Por favor, preencha todos os campos.' });
       return;
     }
     if (password !== confirmPassword) {
-      setError('As senhas não coincidem.');
+      setModalConfig({ visible: true, type: 'error', message: 'As senhas não coincidem.' });
       return;
     }
     if (password.length < 6) {
-      setError('A senha deve ter pelo menos 6 caracteres.');
+      setModalConfig({ visible: true, type: 'error', message: 'A senha deve ter pelo menos 6 caracteres.' });
       return;
     }
 
     setLoading(true);
     try {
-      // 2. CRIA NO FIREBASE AUTH (Com a senha REAL)
-      // Isso garante que o usuário consiga logar depois com essa senha
+      // 1. Cria no Firebase (Auth)
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
-      console.log("Firebase User criado com UID:", user.uid);
 
-      // 3. SALVA NO SEU BACKEND (MongoDB)
-      // Aqui enviamos uma senha aleatória, pois o backend exige o campo 'senha',
-      // mas nós nunca usaremos essa senha do Mongo para fazer login.
+      // 2. Salva no Backend (MongoDB)
       await registerUsuario({
         name: name,
         email: email,
-        senha: generateRandomPassword(), // Senha "dummy" segura
+        senha: generateRandomPassword(), // Senha dummy para o Mongo
         telefone: telefone,
         role: 'cliente', 
-        firebase_uid: user.uid // O vínculo importante
+        firebase_uid: user.uid
       });
 
-      // Sucesso!
-      Alert.alert("Bem-vindo!", "Sua conta foi criada com sucesso.", [
-        { text: "Começar", onPress: () => router.replace('/(tabs)') } 
-      ]);
+      // ✅ SUCESSO: Abre o Modal
+      setModalConfig({ 
+        visible: true, 
+        type: 'success', 
+        message: "Seu cadastro foi realizado com sucesso. Agora você pode entrar e agendar seu horário." 
+      });
 
     } catch (e: any) {
-      console.error("Erro no registro:", e);
-      // Tratamento de erros comuns do Firebase
-      if (e.code === 'auth/email-already-in-use') {
-        setError("Este email já está cadastrado.");
-      } else if (e.code === 'auth/invalid-email') {
-        setError("Email inválido.");
-      } else if (e.code === 'auth/weak-password') {
-        setError("A senha é muito fraca.");
-      } else {
-        // Erro genérico ou do Backend
-        setError(e.message || "Ocorreu um erro ao criar a conta.");
-      }
+      console.error("Erro registro:", e);
+      let msg = "Erro ao criar conta.";
+      if (e.code === 'auth/email-already-in-use') msg = "Este email já está cadastrado.";
+      else if (e.code === 'auth/invalid-email') msg = "Email inválido.";
+      else if (e.code === 'auth/weak-password') msg = "A senha é muito fraca.";
+      
+      setModalConfig({ visible: true, type: 'error', message: msg });
     } finally {
       setLoading(false);
     }
   };
 
+  const closeModal = () => {
+    setModalConfig(prev => ({ ...prev, visible: false }));
+    // Se foi sucesso, redireciona
+    if (modalConfig.type === 'success') {
+      router.replace('/(auth)/login');
+    }
+  };
+
   return (
-    <SafeAreaView className="flex-1 bg-gray-50">
+    <SafeAreaView className="flex-1 bg-gray-50" edges={['top']}>
       <StatusBar style="dark" />
-      <Header /> 
+      
+      {/* ✅ HEADER (Adicionado aqui) */}
+      <Header />
 
-      <ScrollView 
-        contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 20 }}
-        className="bg-gray-50"
-        showsVerticalScrollIndicator={false}
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === "ios" ? "padding" : "height"} 
+        className="flex-1"
       >
-        <View className="bg-white w-full max-w-md mx-auto p-8 rounded-xl shadow-sm border border-gray-100">
+        <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false}>
           
-          <View className="flex-row items-center justify-center gap-3 mb-6">
-            <Scissors size={24} color="#000" /> 
-            <Text className="text-2xl font-bold text-gray-900">Crie sua Conta</Text>
+          {/* Título e Subtítulo (Sem o botão de voltar antigo, pois o Header pode já ter ou ser o suficiente) */}
+          {/* Se o seu componente Header for genérico e não tiver botão de voltar, você pode manter este botão 'ChevronLeft' aqui embaixo */}
+          <View className="px-6 pt-4 pb-2">
+            <Pressable 
+              onPress={() => router.back()} 
+              className="w-10 h-10 bg-white rounded-full items-center justify-center border border-gray-200 mb-6"
+            >
+              <ChevronLeft size={24} color="#000" />
+            </Pressable>
+            
+            <Text className="text-3xl font-bold text-gray-900 mb-2">Crie sua conta</Text>
+            <Text className="text-gray-500 text-base">
+              Preencha seus dados para agendar seu corte de forma rápida e fácil.
+            </Text>
           </View>
 
-          <Text className="text-gray-500 text-center mb-6">
-            Preencha os dados abaixo para começar a agendar.
-          </Text>
+          <View className="px-6 mt-6 gap-4 pb-10"> 
+            
+            {/* Nome */}
+            <View>
+              <Text className="text-xs font-bold text-gray-500 uppercase mb-1 ml-1">Nome Completo</Text>
+              <View className="flex-row items-center bg-white border border-gray-200 rounded-xl px-4 py-3 focus:border-yellow-400">
+                <User size={20} color="#9CA3AF" />
+                <TextInput
+                  className="flex-1 ml-3 text-base text-gray-900"
+                  placeholder="Ex: João Silva"
+                  placeholderTextColor="#D1D5DB"
+                  value={name}
+                  onChangeText={setName}
+                  autoCapitalize="words"
+                />
+              </View>
+            </View>
 
-          {/* Input Nome */}
-          <TextInput
-            className="w-full bg-gray-100 border border-gray-200 p-4 rounded-lg text-base text-black mb-4"
-            placeholder="Nome Completo"
-            placeholderTextColor="#6B7280"
-            value={name}
-            onChangeText={setName}
-            autoCapitalize="words"
-          />
+            {/* Telefone */}
+            <View>
+              <Text className="text-xs font-bold text-gray-500 uppercase mb-1 ml-1">Celular</Text>
+              <View className="flex-row items-center bg-white border border-gray-200 rounded-xl px-4 py-3">
+                <Phone size={20} color="#9CA3AF" />
+                <TextInput
+                  className="flex-1 ml-3 text-base text-gray-900"
+                  placeholder="(11) 99999-9999"
+                  placeholderTextColor="#D1D5DB"
+                  value={telefone}
+                  onChangeText={setTelefone}
+                  keyboardType="phone-pad"
+                />
+              </View>
+            </View>
 
-          {/* Input Telefone */}
-          <TextInput
-            className="w-full bg-gray-100 border border-gray-200 p-4 rounded-lg text-base text-black mb-4"
-            placeholder="Celular (com DDD)"
-            placeholderTextColor="#6B7280"
-            value={telefone}
-            onChangeText={setTelefone}
-            keyboardType="phone-pad"
-          />
+            {/* Email */}
+            <View>
+              <Text className="text-xs font-bold text-gray-500 uppercase mb-1 ml-1">E-mail</Text>
+              <View className="flex-row items-center bg-white border border-gray-200 rounded-xl px-4 py-3">
+                <Mail size={20} color="#9CA3AF" />
+                <TextInput
+                  className="flex-1 ml-3 text-base text-gray-900"
+                  placeholder="seu@email.com"
+                  placeholderTextColor="#D1D5DB"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              </View>
+            </View>
 
-          {/* Input Email */}
-          <TextInput
-            className="w-full bg-gray-100 border border-gray-200 p-4 rounded-lg text-base text-black mb-4"
-            placeholder="Email"
-            placeholderTextColor="#6B7280"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
+            {/* Senha */}
+            <View>
+              <Text className="text-xs font-bold text-gray-500 uppercase mb-1 ml-1">Senha</Text>
+              <View className="flex-row items-center bg-white border border-gray-200 rounded-xl px-4 py-3">
+                <Lock size={20} color="#9CA3AF" />
+                <TextInput
+                  className="flex-1 ml-3 text-base text-gray-900"
+                  placeholder="Mínimo 6 caracteres"
+                  placeholderTextColor="#D1D5DB"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                />
+              </View>
+            </View>
 
-          {/* Input Senha */}
-          <TextInput
-            className="w-full bg-gray-100 border border-gray-200 p-4 rounded-lg text-base text-black mb-4"
-            placeholder="Senha"
-            placeholderTextColor="#6B7280"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
+            {/* Confirmar Senha */}
+            <View>
+              <Text className="text-xs font-bold text-gray-500 uppercase mb-1 ml-1">Confirmar Senha</Text>
+              <View className="flex-row items-center bg-white border border-gray-200 rounded-xl px-4 py-3">
+                <Lock size={20} color="#9CA3AF" />
+                <TextInput
+                  className="flex-1 ml-3 text-base text-gray-900"
+                  placeholder="Repita a senha"
+                  placeholderTextColor="#D1D5DB"
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry
+                />
+              </View>
+            </View>
 
-          {/* Input Confirmar Senha */}
-          <TextInput
-            className="w-full bg-gray-100 border border-gray-200 p-4 rounded-lg text-base text-black mb-6"
-            placeholder="Confirmar Senha"
-            placeholderTextColor="#6B7280"
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            secureTextEntry
-          />
+            {/* Botão Cadastrar */}
+            <Pressable
+              className="w-full bg-zinc-900 py-4 rounded-xl items-center mt-4 active:bg-zinc-800 flex-row justify-center gap-2"
+              onPress={handleRegister}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#FACC15" />
+              ) : (
+                <>
+                  <Text className="text-white text-lg font-bold">Criar Conta</Text>
+                  <UserPlus size={20} color="#FACC15" />
+                </>
+              )}
+            </Pressable>
 
-          {error ? <Text className="text-red-500 mb-4 text-center">{error}</Text> : null}
+            {/* Link Login */}
+            <View className="flex-row justify-center mt-4">
+              <Text className="text-gray-500">Já tem uma conta? </Text>
+              <Link href="/(auth)/login" asChild>
+                <Pressable>
+                  <Text className="text-zinc-900 font-bold underline">Faça Login</Text>
+                </Pressable>
+              </Link>
+            </View>
 
-          <Pressable
-            className="w-full bg-yellow-400 p-4 rounded-lg items-center active:bg-yellow-500 flex-row justify-center gap-2"
-            onPress={handleRegister}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#000" />
-            ) : (
-              <>
-                <Text className="text-black text-lg font-bold">Cadastrar</Text>
-                <UserPlus size={20} color="black" />
-              </>
-            )}
-          </Pressable>
-
-          <View className="mt-6 items-center">
-            <Link href="/(auth)/login" asChild>
-              <Pressable>
-                <Text className="text-gray-500">
-                  Já possui uma conta? <Text className="text-black font-bold">Entrar</Text>
-                </Text>
-              </Pressable>
-            </Link>
           </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
-        </View>
-      </ScrollView>
+      {/* ✅ FOOTER (Adicionado aqui) */}
       <Footer />
+
+      {/* ✅ MODAL DE SUCESSO / ERRO */}
+      <StatusModal 
+        visible={modalConfig.visible} 
+        type={modalConfig.type as any} 
+        message={modalConfig.message} 
+        onClose={closeModal} 
+      />
+
     </SafeAreaView>
   );
 };

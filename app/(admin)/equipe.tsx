@@ -1,21 +1,20 @@
 import { useFocusEffect } from 'expo-router';
-import { Check, Trash2, User, UserPlus, X } from 'lucide-react-native';
+import { AlertCircle, Check, CheckCircle2, Trash2, User, UserPlus, X } from 'lucide-react-native';
 import React, { useCallback, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Image,
-    Modal,
-    Pressable,
-    RefreshControl,
-    Text,
-    TextInput,
-    View
+  ActivityIndicator,
+  FlatList,
+  Image,
+  Modal,
+  Pressable,
+  RefreshControl,
+  Text,
+  TextInput,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import api, { getBarbeiros, registerUsuario } from '../../services/api';
+import { deleteUsuario, getBarbeiros, registerUsuario } from '../../services/api';
 
 interface Barbeiro {
   _id: string;
@@ -26,13 +25,44 @@ interface Barbeiro {
   firebase_uid?: string;
 }
 
+// --- MODAL DE STATUS (Reutilizável para Delete/Confirmação) ---
+const StatusModal = ({ visible, type, message, onClose, onConfirm }: { visible: boolean; type: 'success' | 'error' | 'confirm'; message: string; onClose: () => void; onConfirm?: () => void }) => {
+  return (
+    <Modal transparent visible={visible} animationType="fade">
+      <View className="flex-1 bg-black/60 justify-center items-center px-6">
+        <View className="bg-white w-full max-w-sm rounded-2xl p-6 items-center shadow-2xl">
+          <View className={`w-16 h-16 rounded-full items-center justify-center mb-4 ${type === 'success' ? 'bg-green-100' : type === 'error' ? 'bg-red-100' : 'bg-red-100'}`}>
+            {type === 'success' ? <CheckCircle2 size={32} color="#16A34A" /> : type === 'error' ? <AlertCircle size={32} color="#DC2626" /> : <Trash2 size={32} color="#EF4444" />}
+          </View>
+          <Text className="text-xl font-bold text-gray-900 mb-2 text-center">
+            {type === 'confirm' ? 'Remover Profissional?' : type === 'success' ? 'Sucesso' : 'Atenção'}
+          </Text>
+          <Text className="text-gray-500 text-center mb-6 text-base leading-5">{message}</Text>
+          
+          {type === 'confirm' ? (
+            <View className="flex-row gap-3 w-full">
+              <Pressable onPress={onClose} className="flex-1 py-3 rounded-xl items-center bg-gray-100"><Text className="text-gray-700 font-bold">Cancelar</Text></Pressable>
+              <Pressable onPress={onConfirm} className="flex-1 py-3 rounded-xl items-center bg-red-500"><Text className="text-white font-bold">Remover</Text></Pressable>
+            </View>
+          ) : (
+            <Pressable onPress={onClose} className={`w-full py-3 rounded-xl items-center ${type === 'success' ? 'bg-green-600' : 'bg-zinc-900'}`}><Text className="text-white font-bold text-base">OK</Text></Pressable>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 export default function AdminEquipe() {
   const [barbeiros, setBarbeiros] = useState<Barbeiro[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // Modal
+  // Modais
   const [modalVisible, setModalVisible] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [statusModal, setStatusModal] = useState<{ visible: boolean; type: 'success' | 'error' | 'confirm'; message: string; action?: () => void }>({
+    visible: false, type: 'success', message: ''
+  });
   
   // Form
   const [name, setName] = useState('');
@@ -42,11 +72,10 @@ export default function AdminEquipe() {
   const fetchEquipe = async () => {
     try {
       setLoading(true);
-      // Reutilizamos a função da API que busca users com role='barbeiro'
       const data = await getBarbeiros();
       setBarbeiros(data);
     } catch (error) {
-      // Alert.alert("Erro", "Falha ao carregar equipe.");
+      // Silencioso
     } finally {
       setLoading(false);
     }
@@ -60,50 +89,56 @@ export default function AdminEquipe() {
 
   const handleAddBarber = async () => {
     if (!name || !email) {
-      Alert.alert("Erro", "Nome e Email são obrigatórios.");
+      setStatusModal({ visible: true, type: 'error', message: "Nome e Email são obrigatórios." });
       return;
     }
 
     try {
       setSaving(true);
-      // Cria usuário com role 'barbeiro' e UID temporário no backend
       await registerUsuario({
         name,
         email,
-        senha: 'mudar123', // Senha dummy, pois o login será via Firebase
+        senha: 'mudar123',
         telefone,
         role: 'barbeiro',
-        firebase_uid: '' // O backend vai gerar 'temp_...'
+        firebase_uid: '' 
       });
 
-      Alert.alert("Sucesso", "Barbeiro pré-cadastrado! Peça para ele se registrar no App com este email.");
+      setStatusModal({ visible: true, type: 'success', message: "Barbeiro pré-cadastrado com sucesso! Peça para ele se registrar no app." });
       setModalVisible(false);
       setName(''); setEmail(''); setTelefone('');
       fetchEquipe();
 
     } catch (error: any) {
-      Alert.alert("Erro", error.message);
+      setStatusModal({ visible: true, type: 'error', message: error.message || "Erro ao cadastrar." });
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDelete = (id: string) => {
-    Alert.alert("Remover", "Tem certeza que deseja remover este profissional?", [
-      { text: "Cancelar", style: "cancel" },
-      { 
-        text: "Remover", 
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await api.delete(`/usuarios/${id}`);
-            fetchEquipe();
-          } catch (e) {
-            Alert.alert("Erro", "Não foi possível remover.");
-          }
-        } 
-      }
-    ]);
+  // --- DELETE CORRIGIDO ---
+  const handleDeleteRequest = (id: string) => {
+    setStatusModal({
+      visible: true,
+      type: 'confirm',
+      message: "Tem certeza que deseja remover este profissional da equipe?",
+      action: () => confirmDelete(id)
+    });
+  };
+
+  const confirmDelete = async (id: string) => {
+    setStatusModal(prev => ({ ...prev, visible: false }));
+    try {
+      await deleteUsuario(id); // Usa a função importada do api.ts
+      fetchEquipe();
+      setStatusModal({ visible: true, type: 'success', message: "Profissional removido." });
+    } catch (e) {
+      setStatusModal({ visible: true, type: 'error', message: "Não foi possível remover." });
+    }
+  };
+
+  const closeStatusModal = () => {
+    setStatusModal(prev => ({ ...prev, visible: false }));
   };
 
   return (
@@ -144,7 +179,8 @@ export default function AdminEquipe() {
               )}
             </View>
 
-            <Pressable onPress={() => handleDelete(item._id)} className="p-2 bg-red-50 rounded-lg">
+            {/* Botão Delete com Modal */}
+            <Pressable onPress={() => handleDeleteRequest(item._id)} className="p-2 bg-red-50 rounded-lg">
               <Trash2 size={18} color="#EF4444" />
             </Pressable>
 
@@ -180,6 +216,14 @@ export default function AdminEquipe() {
           </View>
         </View>
       </Modal>
+
+      <StatusModal 
+        visible={statusModal.visible} 
+        type={statusModal.type} 
+        message={statusModal.message} 
+        onClose={closeStatusModal} 
+        onConfirm={statusModal.action} 
+      />
 
     </SafeAreaView>
   );

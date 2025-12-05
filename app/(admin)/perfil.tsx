@@ -86,13 +86,22 @@ export default function AdminPerfil() {
     });
   };
 
-  const confirmSignOut = async () => {
+const confirmSignOut = async () => {
+    // Fecha o modal imediatamente
     setModalConfig(prev => ({ ...prev, visible: false }));
+    
     try {
+      // 1. Chama o logout
       await signOut();
+      
+      // 2. Força a navegação para login IMEDIATAMENTE para evitar que a tela tente buscar dados sem token
+      // O replace impede que o usuário volte
       router.replace('/(auth)/login');
+      
     } catch (error) {
       console.error("Erro ao sair:", error);
+      // Mesmo com erro no firebase, forçamos a saída visual
+      router.replace('/(auth)/login');
     }
   };
 
